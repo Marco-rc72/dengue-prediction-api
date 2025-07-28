@@ -48,6 +48,28 @@ def predict():
 
     return jsonify({'predicciones': predicciones.tolist()})
 
+@app.route('/predict', methods=['GET'])
+def predict_desde_uploads():
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'dengue_combinado_filtrado_ordenado.csv')
+
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Archivo CSV no encontrado en uploads'}), 404
+
+    try:
+        df = pd.read_csv(filepath)
+
+        features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN',
+                    'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
+
+        df = df[features]
+        df = pd.get_dummies(df, columns=['SEXO', 'TIPO_PACIENTE', 'DICTAMEN'], drop_first=True)
+
+        predicciones = modelo.predict(df)
+        return jsonify({'predicciones': predicciones.tolist()})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/regresion-anual', methods=['GET'])
 def regresion_anual():
     # Ruta del archivo CSV base (puedes ajustar)
