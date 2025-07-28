@@ -113,25 +113,27 @@ def generar_resumen_municipios(filtro_entidad=None):
 def home():
     return "API de predicción de defunción por dengue - Activa"
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No se envió ningún archivo CSV'}), 400
+@app.route('/predict', methods=['GET'])
+def predict_desde_uploads():
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'dengue_combinado_filtrado_ordenado.csv')
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'Nombre de archivo vacío'}), 400
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Archivo CSV no encontrado en uploads'}), 404
 
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-    file.save(filepath)
+    try:
+        df = pd.read_csv(filepath)
 
-    df = pd.read_csv(filepath)
-    features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN', 'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
-    df = df[features]
-    df = pd.get_dummies(df, columns=['SEXO', 'TIPO_PACIENTE', 'DICTAMEN'], drop_first=True)
+        features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN',
+                    'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
 
-    predicciones = modelo.predict(df)
-    return jsonify({'predicciones': predicciones.tolist()})
+        df = df[features]
+        df = pd.get_dummies(df, columns=['SEXO', 'TIPO_PACIENTE', 'DICTAMEN'], drop_first=True)
+
+        predicciones = modelo.predict(df)
+        return jsonify({'predicciones': predicciones.tolist()})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/regresion-anual', methods=['GET'])
 def regresion_anual():
