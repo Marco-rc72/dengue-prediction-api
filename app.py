@@ -1,18 +1,26 @@
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
 import pandas as pd
+import joblib
 import os
-from unidecode import unidecode
+import numpy as np
+from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from unidecode import unidecode
 
 app = Flask(__name__)
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-CSV_PATH = os.path.join('uploads', 'dengue_combinado_filtrado_ordenado.csv')
-CATALOGO_PATH = os.path.join('uploads', 'Catálogos_Dengue.xlsx')
+CSV_PATH = os.path.join(UPLOAD_FOLDER, 'dengue_combinado_filtrado_ordenado.csv')
+CATALOGO_PATH = os.path.join(UPLOAD_FOLDER, 'Catálogos_Dengue.xlsx')
 
-# -------------------- FUNCIONES --------------------
+# Cargar modelo de clasificación
+modelo = joblib.load('models/modelo_rf.pkl')
+
+# -------------------- FUNCIONES AUXILIARES --------------------
 
 def cargar_datos_unidos():
     if not os.path.exists(CSV_PATH) or not os.path.exists(CATALOGO_PATH):
@@ -59,7 +67,6 @@ def cargar_datos_unidos():
 
     return df, None, errores
 
-
 def generar_resumen_municipios(filtro_entidad=None):
     df, error, errores = cargar_datos_unidos()
     if error:
@@ -84,9 +91,8 @@ def generar_resumen_municipios(filtro_entidad=None):
         .sort_values(by='muertes', ascending=False)
     )
 
-    resultado = []
-    for _, row in resumen.iterrows():
-        resultado.append({
+    resultado = [
+        {
             "entidad": row['NOMBRE_ENTIDAD'],
             "municipio": row['MUNICIPIO'],
             "total_casos": int(row['total_casos']),
@@ -95,18 +101,71 @@ def generar_resumen_municipios(filtro_entidad=None):
             "hipertension": int(row['hipertension']),
             "embarazo": int(row['embarazo']),
             "inmunosupresion": int(row['inmunosupresion']),
-        })
+        }
+        for _, row in resumen.iterrows()
+    ]
 
     return {"municipios": resultado, "registros_no_encontrados": errores}, 200
 
 # -------------------- ENDPOINTS --------------------
+
+@app.route('/')
+def home():
+    return "API de predicción de defunción por dengue - Activa"
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No se envió ningún archivo CSV'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'Nombre de archivo vacío'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+    file.save(filepath)
+
+    df = pd.read_csv(filepath)
+    features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN', 'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
+    df = df[features]
+    df = pd.get_dummies(df, columns=['SEXO', 'TIPO_PACIENTE', 'DICTAMEN'], drop_first=True)
+
+    predicciones = modelo.predict(df)
+    return jsonify({'predicciones': predicciones.tolist()})
+
+@app.route('/regresion-anual', methods=['GET'])
+def regresion_anual():
+    if not os.path.exists(CSV_PATH):
+        return jsonify({'error': 'Archivo CSV no encontrado en /uploads'}), 404
+
+    try:
+        df = pd.read_csv(CSV_PATH, usecols=['FECHA_SIGN_SINTOMAS', 'DEFUNCION'])
+        df['AÑO'] = pd.to_datetime(df['FECHA_SIGN_SINTOMAS'], errors='coerce').dt.year
+        df = df.dropna(subset=['AÑO'])
+        df_def = df[df['DEFUNCION'] == 1]
+        muertes_por_año = df_def.groupby('AÑO').size()
+
+        X = muertes_por_año.index.values.reshape(-1, 1)
+        y = muertes_por_año.values
+
+        modelo_rl = LinearRegression()
+        modelo_rl.fit(X, y)
+        pred = modelo_rl.predict(X)
+
+        response = {
+            'años': X.flatten().tolist(),
+            'muertes': y.tolist(),
+            'tendencia': np.round(pred).astype(int).tolist()
+        }
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/resumen', methods=['GET'])
 def resumen_api():
     entidad_filtro = request.args.get('entidad')
     resultado, status = generar_resumen_municipios(entidad_filtro)
     return jsonify(resultado), status
-
 
 @app.route('/api/riesgo', methods=['GET'])
 def riesgo_municipios():
@@ -152,15 +211,16 @@ def riesgo_municipios():
 
     top = municipios_2026.sort_values(by='muertes_estimadas', ascending=False).head(10)
 
-    resultado = []
-    for _, row in top.iterrows():
-        resultado.append({
+    resultado = [
+        {
             "año": row['AÑO'],
             "entidad": row['NOMBRE_ENTIDAD'],
             "municipio": row['MUNICIPIO'],
             "muertes_estimadas": int(row['muertes_estimadas']),
             "casos_estimados": int(row['casos_estimados'])
-        })
+        }
+        for _, row in top.iterrows()
+    ]
 
     return jsonify({"riesgo_2026": resultado}), 200
 
