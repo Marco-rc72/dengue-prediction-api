@@ -9,8 +9,11 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from unidecode import unidecode
+from flask_cors import CORS
+
 
 app = Flask(__name__)
+CORS(app)
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -18,7 +21,7 @@ CSV_PATH = os.path.join(UPLOAD_FOLDER, 'dengue_combinado_filtrado_ordenado.csv')
 CATALOGO_PATH = os.path.join(UPLOAD_FOLDER, 'Catálogos_Dengue.xlsx')
 
 # Cargar modelo de clasificación
-modelo = joblib.load('models/modelo_rf.pkl')
+modelo = joblib.load('models/modelo_rl.pkl')
 
 # -------------------- FUNCIONES AUXILIARES --------------------
 
@@ -134,6 +137,33 @@ def predict_desde_uploads():
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        file = request.files['file']
+        df = pd.read_csv(file)
+
+        # Asegurar consistencia de columnas
+        columnas = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN', 'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
+        df = df[columnas]
+
+        # Predicción
+        prob = modelo.predict_proba(df)[0][1]
+        umbral = float(request.args.get('umbral', 0.5))
+        pred = int(prob >= umbral)
+
+        mensaje = "Alto riesgo" if pred == 1 else "Bajo riesgo"
+        return jsonify({
+            'mensaje': mensaje,
+            'prediccion': pred,
+            'probabilidad_riesgo': round(prob, 4)
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 
 @app.route('/regresion-anual', methods=['GET'])
 def regresion_anual():
