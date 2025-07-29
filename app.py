@@ -1,4 +1,6 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
+
 import pandas as pd
 import joblib
 import os
@@ -11,6 +13,7 @@ from sklearn.pipeline import Pipeline
 from unidecode import unidecode
 
 app = Flask(__name__)
+CORS(app, origins=["http://localhost:3000"])
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -113,25 +116,51 @@ def generar_resumen_municipios(filtro_entidad=None):
 def home():
     return "API de predicción de defunción por dengue - Activa"
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No se envió ningún archivo CSV'}), 400
+@app.route('/api/estadisticas-generales', methods=['GET'])
+def estadisticas_generales():
+    df, error, _ = cargar_datos_unidos()
+    if error:
+        return jsonify({"error": error}), 500
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'Nombre de archivo vacío'}), 400
+    try:
+        total_casos = len(df)
+        defunciones = df['DEFUNCION'].sum()
+        edad_promedio = int(round(df['EDAD_ANOS'].mean(), 0))
+        entidad_mas_casos = (
+            df.groupby('NOMBRE_ENTIDAD').size().sort_values(ascending=False).idxmax()
+        )
 
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-    file.save(filepath)
+        return jsonify({
+            "casos_totales": total_casos,
+            "defunciones": int(defunciones),
+            "edad_promedio": edad_promedio,
+            "entidad_mas_casos": entidad_mas_casos
+        })
 
-    df = pd.read_csv(filepath)
-    features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN', 'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
-    df = df[features]
-    df = pd.get_dummies(df, columns=['SEXO', 'TIPO_PACIENTE', 'DICTAMEN'], drop_first=True)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    predicciones = modelo.predict(df)
-    return jsonify({'predicciones': predicciones.tolist()})
+@app.route('/predict', methods=['GET'])
+def predict_desde_uploads():
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'dengue_combinado_filtrado_ordenado.csv')
+
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Archivo CSV no encontrado en uploads'}), 404
+
+    try:
+        df = pd.read_csv(filepath)
+
+        features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN',
+                    'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
+
+        df = df[features]
+        df = pd.get_dummies(df, columns=['SEXO', 'TIPO_PACIENTE', 'DICTAMEN'], drop_first=True)
+
+        predicciones = modelo.predict(df)
+        return jsonify({'predicciones': predicciones.tolist()})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/regresion-anual', methods=['GET'])
 def regresion_anual():
@@ -190,14 +219,8 @@ def riesgo_municipios():
         ('cat', OneHotEncoder(handle_unknown='ignore'), ['ENTIDAD_RES', 'MUNICIPIO_RES', 'AÑO'])
     ])
 
-    modelo_muertes = Pipeline([
-        ('prep', pre),
-        ('rf', RandomForestRegressor(n_estimators=100, random_state=42))
-    ])
-    modelo_casos = Pipeline([
-        ('prep', pre),
-        ('rf', RandomForestRegressor(n_estimators=100, random_state=42))
-    ])
+    modelo_muertes = Pipeline([('prep', pre), ('rf', RandomForestRegressor(n_estimators=100, random_state=42))])
+    modelo_casos = Pipeline([('prep', pre), ('rf', RandomForestRegressor(n_estimators=100, random_state=42))])
 
     modelo_muertes.fit(X_train, y_muertes)
     modelo_casos.fit(X_train, y_casos)
