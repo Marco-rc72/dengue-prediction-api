@@ -116,6 +116,7 @@ def generar_resumen_municipios(filtro_entidad=None):
 def home():
     return "API de predicción de defunción por dengue - Activa"
 
+<<<<<<< HEAD
 @app.route('/api/estadisticas-generales', methods=['GET'])
 def estadisticas_generales():
     df, error, _ = cargar_datos_unidos()
@@ -153,6 +154,21 @@ def predict_desde_uploads():
         features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN',
                     'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
 
+=======
+@app.route('/predict', methods=['GET'])
+def predict_desde_uploads():
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'dengue_combinado_filtrado_ordenado.csv')
+
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Archivo CSV no encontrado en uploads'}), 404
+
+    try:
+        df = pd.read_csv(filepath)
+
+        features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN',
+                    'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
+
+>>>>>>> 675b1be3c9b7dad1936ae35ea2c4e3c826bbb2c6
         df = df[features]
         df = pd.get_dummies(df, columns=['SEXO', 'TIPO_PACIENTE', 'DICTAMEN'], drop_first=True)
 
