@@ -21,7 +21,7 @@ CSV_PATH = os.path.join(UPLOAD_FOLDER, 'dengue_combinado_filtrado_ordenado.csv')
 CATALOGO_PATH = os.path.join(UPLOAD_FOLDER, 'Catálogos_Dengue.xlsx')
 
 # Cargar modelo de clasificación
-modelo = joblib.load('models/modelo_rf.pkl')
+modelo = joblib.load('models/modelo_rl.pkl')
 
 # -------------------- FUNCIONES AUXILIARES --------------------
 
@@ -116,31 +116,6 @@ def generar_resumen_municipios(filtro_entidad=None):
 def home():
     return "API de predicción de defunción por dengue - Activa"
 
-<<<<<<< HEAD
-@app.route('/api/estadisticas-generales', methods=['GET'])
-def estadisticas_generales():
-    df, error, _ = cargar_datos_unidos()
-    if error:
-        return jsonify({"error": error}), 500
-
-    try:
-        total_casos = len(df)
-        defunciones = df['DEFUNCION'].sum()
-        edad_promedio = int(round(df['EDAD_ANOS'].mean(), 0))
-        entidad_mas_casos = (
-            df.groupby('NOMBRE_ENTIDAD').size().sort_values(ascending=False).idxmax()
-        )
-
-        return jsonify({
-            "casos_totales": total_casos,
-            "defunciones": int(defunciones),
-            "edad_promedio": edad_promedio,
-            "entidad_mas_casos": entidad_mas_casos
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/predict', methods=['GET'])
 def predict_desde_uploads():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'dengue_combinado_filtrado_ordenado.csv')
@@ -154,27 +129,37 @@ def predict_desde_uploads():
         features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN',
                     'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
 
-=======
-@app.route('/predict', methods=['GET'])
-def predict_desde_uploads():
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'dengue_combinado_filtrado_ordenado.csv')
-
-    if not os.path.exists(filepath):
-        return jsonify({'error': 'Archivo CSV no encontrado en uploads'}), 404
-
-    try:
-        df = pd.read_csv(filepath)
-
-        features = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN',
-                    'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
-
->>>>>>> 675b1be3c9b7dad1936ae35ea2c4e3c826bbb2c6
         df = df[features]
         df = pd.get_dummies(df, columns=['SEXO', 'TIPO_PACIENTE', 'DICTAMEN'], drop_first=True)
 
         predicciones = modelo.predict(df)
         return jsonify({'predicciones': predicciones.tolist()})
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        file = request.files['file']
+        df = pd.read_csv(file)
+
+        # Asegurar consistencia de columnas
+        columnas = ['EDAD_ANOS', 'SEXO', 'TIPO_PACIENTE', 'DICTAMEN', 'DIABETES', 'HIPERTENSION', 'EMBARAZO', 'INMUNOSUPR']
+        df = df[columnas]
+
+        # Predicción
+        prob = modelo.predict_proba(df)[0][1]
+        umbral = float(request.args.get('umbral', 0.5))
+        pred = int(prob >= umbral)
+
+        mensaje = "Alto riesgo" if pred == 1 else "Bajo riesgo"
+        return jsonify({
+            'mensaje': mensaje,
+            'prediccion': pred,
+            'probabilidad_riesgo': round(prob, 4)
+        })
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
