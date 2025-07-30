@@ -76,7 +76,7 @@ def generar_resumen_municipios(filtro_entidad=None):
         return {"error": error}, 500
 
     if filtro_entidad:
-        df = df[unidecode(df['NOMBRE_ENTIDAD'].str.lower()) == unidecode(filtro_entidad.strip().lower())]
+        df = df[df['NOMBRE_ENTIDAD'].str.lower().apply(unidecode) == unidecode(filtro_entidad.strip().lower())]
         if df.empty:
             return {"error": f"No se encontraron datos para la entidad '{filtro_entidad}'"}, 404
 
